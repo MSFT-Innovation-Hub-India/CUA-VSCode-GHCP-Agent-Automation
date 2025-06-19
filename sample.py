@@ -5,27 +5,39 @@ import os
 import shutil
 from io import BytesIO
 
-from openai import OpenAI
 from openai import AzureOpenAI
 
 import base64
 import json
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from azure.core.credentials import AzureKeyCredential
+from dotenv import load_dotenv
 
 # Optional: Make sure failsafe is off if your cursor jumps to corner
 pyautogui.FAILSAFE = False
 
-token_provider = get_bearer_token_provider(
-    DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default"
-)
+# Load environment variables from .env file
+load_dotenv()
 
+# Get configuration from environment variables
+azure_endpoint = os.getenv(
+    "AZURE_OPENAI_ENDPOINT", "https://aoai-gpt4-001.openai.azure.com/"
+)
+api_version = os.getenv("AZURE_API_VERSION", "2025-03-01-preview")
+cognitive_services_scope = os.getenv(
+    "COGNITIVE_SERVICES_SCOPE", "https://cognitiveservices.azure.com/.default"
+)
+cua_model_name = os.getenv("CUA_MODEL_NAME", "computer-use-preview")
+
+token_provider = get_bearer_token_provider(
+    DefaultAzureCredential(), cognitive_services_scope
+)
 
 ### client = OpenAI(api_key=config.api_key)
 client = AzureOpenAI(
-    azure_endpoint="https://aoai-gpt4-001.openai.azure.com/",
+    azure_endpoint=azure_endpoint,
     azure_ad_token_provider=token_provider,
-    api_version="2025-03-01-preview",
+    api_version=api_version,
 )
 
 
@@ -132,19 +144,10 @@ def take_screenshot_and_convert_to_base64(screenshot_counter):
         img_buffer.seek(0)
         base64_image = base64.b64encode(img_buffer.getvalue()).decode()
 
-        print(f"Screenshot {screenshot_counter} captured in memory and converted to base64")
-
-        # Optional: Save screenshot to disk for debugging (commented out by default)
-        # images_folder = "images"
-        # screenshot_filename = f"progress_{screenshot_counter:03d}.png"
-        # screenshot_path = os.path.join(images_folder, screenshot_filename)
-        # if not os.path.exists(images_folder):
-        #     os.makedirs(images_folder)
-        # screenshot.save(screenshot_path)
-        # print(f"Screenshot {screenshot_counter} also saved to disk: {screenshot_filename}")
-
+        print(
+            f"Screenshot {screenshot_counter} captured in memory and converted to base64"
+        )
         return base64_image
-
     except Exception as e:
         print(f"Error taking screenshot: {e}")
         return None
@@ -288,7 +291,9 @@ try:
             pip_command = f"pip install -r requirements.txt"
             pyautogui.typewrite(pip_command, interval=0.05)
             pyautogui.press("enter")
-            print(f"Executed: {pip_command}")            # Use CUA model to intelligently detect installation completion
+            print(
+                f"Executed: {pip_command}"
+            )  # Use CUA model to intelligently detect installation completion
             print("Monitoring package installation using CUA model...")
 
             # Count the number of packages for reference
@@ -300,13 +305,12 @@ try:
                 ]
             )
             print(f"Installing {package_count} packages...")
-
             # Define prompt for CUA model to detect installation completion
             installation_prompt = """
 The image provided is a screenshot of a PowerShell/Command Prompt terminal window where pip install is running.
 I need to determine if the package installation has completed or is still in progress.
 
-When installation is complete, the terminal will show an empty prompt (like "PS C:\path>" or "C:\path>") waiting for the next command.
+When installation is complete, the terminal will show an empty prompt (like "PS C:\\path>" or "C:\\path>") waiting for the next command.
 When installation is in progress, you'll see output like:
 - "Collecting package_name..."
 - "Downloading..."
@@ -332,19 +336,23 @@ Return "in_progress" when you see any installation activity or output.
             print("Waiting 5 seconds for installation to begin...")
             time.sleep(5)
 
-            while not installation_complete and (time.time() - start_time) < max_wait_time:
-                print(f"📸 Taking screenshot {screenshot_counter} to check installation status...")
-                
+            while (
+                not installation_complete and (time.time() - start_time) < max_wait_time
+            ):
+                print(
+                    f"📸 Taking screenshot {screenshot_counter} to check installation status..."
+                )
+
                 # Take screenshot and convert to base64
                 base64_image = take_screenshot_and_convert_to_base64(screenshot_counter)
-                
+
                 if base64_image is not None:
                     try:
                         print(f"🔍 Analyzing screenshot with CUA model...")
 
                         # Create request to Computer Use Agent model
                         response = client.responses.create(
-                            model="computer-use-preview",
+                            model=cua_model_name,
                             tools=[
                                 {
                                     "type": "computer_use_preview",
@@ -358,7 +366,10 @@ Return "in_progress" when you see any installation activity or output.
                                     "type": "message",
                                     "role": "user",
                                     "content": [
-                                        {"type": "input_text", "text": installation_prompt},
+                                        {
+                                            "type": "input_text",
+                                            "text": installation_prompt,
+                                        },
                                         {
                                             "type": "input_image",
                                             "image_url": f"data:image/png;base64,{base64_image}",
@@ -368,51 +379,61 @@ Return "in_progress" when you see any installation activity or output.
                             ],
                             truncation="auto",
                         )
-                        
+
                         # Extract the actual text content from the response object
                         response_text = None
-                        
+
                         # Check if response.output is a list of ResponseOutputMessage objects
-                        if hasattr(response.output, '__iter__') and len(response.output) > 0:
+                        if (
+                            hasattr(response.output, "__iter__")
+                            and len(response.output) > 0
+                        ):
                             # Get the first message in the output
                             first_message = response.output[0]
-                            
+
                             # Extract text content from the message
-                            if hasattr(first_message, 'content') and len(first_message.content) > 0:
+                            if (
+                                hasattr(first_message, "content")
+                                and len(first_message.content) > 0
+                            ):
                                 first_content = first_message.content[0]
-                                if hasattr(first_content, 'text'):
+                                if hasattr(first_content, "text"):
                                     response_text = first_content.text
-                        
+
                         # Fallback to string conversion if above doesn't work
                         if response_text is None:
                             response_text = str(response.output)
                             # Try to find JSON content in the response
-                            start_idx = response_text.find('{')
-                            end_idx = response_text.rfind('}') + 1
-                            
+                            start_idx = response_text.find("{")
+                            end_idx = response_text.rfind("}") + 1
+
                             if start_idx != -1 and end_idx > start_idx:
                                 response_text = response_text[start_idx:end_idx]
-                        
+
                         print(f"🔍 CUA response: {response_text}")
-                        
+
                         # Parse the JSON content
                         response_data = json.loads(response_text)
-                        
+
                         # Check installation status
-                        if 'installation_status' in response_data:
-                            status = response_data['installation_status']
-                            
+                        if "installation_status" in response_data:
+                            status = response_data["installation_status"]
+
                             if status == "complete":
                                 print("✅ Package installation detected as COMPLETE!")
                                 installation_complete = True
                                 break
                             elif status == "in_progress":
-                                print("⏳ Installation still in progress, continuing to monitor...")
+                                print(
+                                    "⏳ Installation still in progress, continuing to monitor..."
+                                )
                             else:
                                 print(f"⚠️ Unexpected status: {status}")
                         else:
-                            print("⚠️ Response missing expected 'installation_status' field")
-                            
+                            print(
+                                "⚠️ Response missing expected 'installation_status' field"
+                            )
+
                     except json.JSONDecodeError as e:
                         print(f"⚠️ Error parsing JSON response: {e}")
                         print(f"Raw response: {response.output}")
@@ -431,7 +452,9 @@ Return "in_progress" when you see any installation activity or output.
             if installation_complete:
                 print("🎉 Package installation completed successfully!")
             else:
-                print("⏰ Installation monitoring timed out - assuming installation is complete")
+                print(
+                    "⏰ Installation monitoring timed out - assuming installation is complete"
+                )
                 print(f"Waited for {max_wait_time} seconds")
 
             # Brief additional wait to ensure terminal is ready
@@ -525,7 +548,7 @@ while elapsed_time < max_wait_time and not keep_button_found:
 
                 # Create initial request to Computer Use Agent model
                 response = client.responses.create(
-                    model="computer-use-preview",
+                    model=cua_model_name,
                     tools=[
                         {
                             "type": "computer_use_preview",
@@ -539,7 +562,8 @@ while elapsed_time < max_wait_time and not keep_button_found:
                             "type": "message",
                             "role": "user",
                             "content": [
-                                {"type": "input_text", "text": user_prompt},                                {
+                                {"type": "input_text", "text": user_prompt},
+                                {
                                     "type": "input_image",
                                     "image_url": f"data:image/png;base64,{base64_image}",
                                 },
@@ -549,64 +573,70 @@ while elapsed_time < max_wait_time and not keep_button_found:
                     truncation="auto",
                 )
                 print(f"🔍 Debug - Model response received {response.output}")
-                
+
                 # Extract the actual text content from the response object
                 response_text = None
-                
+
                 # Check if response.output is a list of ResponseOutputMessage objects
-                if hasattr(response.output, '__iter__') and len(response.output) > 0:
+                if hasattr(response.output, "__iter__") and len(response.output) > 0:
                     # Get the first message in the output
                     first_message = response.output[0]
-                    
+
                     # Extract text content from the message
-                    if hasattr(first_message, 'content') and len(first_message.content) > 0:
+                    if (
+                        hasattr(first_message, "content")
+                        and len(first_message.content) > 0
+                    ):
                         first_content = first_message.content[0]
-                        if hasattr(first_content, 'text'):
+                        if hasattr(first_content, "text"):
                             response_text = first_content.text
-                
+
                 # Fallback to string conversion if above doesn't work
                 if response_text is None:
                     response_text = str(response.output)
                     # Try to find JSON content in the response
-                    start_idx = response_text.find('{')
-                    end_idx = response_text.rfind('}') + 1
-                    
+                    start_idx = response_text.find("{")
+                    end_idx = response_text.rfind("}") + 1
+
                     if start_idx != -1 and end_idx > start_idx:
                         response_text = response_text[start_idx:end_idx]
-                
+
                 print(f"🔍 Extracted text: {response_text}")
-                
+
                 # Parse the JSON content
                 response_data = json.loads(response_text)
                 print(f"🔍 Parsed response: {response_data}")
-                  # Check if button is enabled
-                if 'button' in response_data:
-                    button_status = response_data['button']
-                    
+                # Check if button is enabled
+                if "button" in response_data:
+                    button_status = response_data["button"]
+
                     if button_status == "enabled":
                         print("✅ Keep button is ENABLED!")
-                        
+
                         # Press Ctrl+Enter to accept the code (cursor is already in chat input area)
                         print("⌨️ Pressing Ctrl+Enter to accept the generated code...")
-                        pyautogui.hotkey('ctrl', 'enter')
-                        
+                        pyautogui.hotkey("ctrl", "enter")
+
                         keep_button_found = True
                         print("🎉 Successfully executed Ctrl+Enter to accept the code!")
                         break
-                        
+
                     elif button_status == "disabled":
-                        print("⏳ Keep button is still disabled, continuing to monitor...")
-                        
+                        print(
+                            "⏳ Keep button is still disabled, continuing to monitor..."
+                        )
+
                     else:
                         print(f"⚠️ Unexpected button status: {button_status}")
-                else:                    print("⚠️ Response missing expected 'button' field")
-                    
+                else:
+                    print("⚠️ Response missing expected 'button' field")
+
             except json.JSONDecodeError as e:
                 print(f"⚠️ Error parsing JSON response: {e}")
                 print(f"Raw response: {response.output}")
             except Exception as e:
                 print(f"⚠️ Error processing model response: {e}")
-                
+
             except Exception as e:
                 print(f"Error calling Computer Use Agent model: {e}")
                 print("Continuing with screenshot monitoring...")
@@ -615,7 +645,9 @@ while elapsed_time < max_wait_time and not keep_button_found:
 
         # If keep button still not found, pause for 5 seconds before next iteration
         if not keep_button_found:
-            print("⏸️ Keep button not enabled yet, pausing for 5 seconds before next iteration...")
+            print(
+                "⏸️ Keep button not enabled yet, pausing for 5 seconds before next iteration..."
+            )
             time.sleep(5)
 
         screenshot_counter += 1
