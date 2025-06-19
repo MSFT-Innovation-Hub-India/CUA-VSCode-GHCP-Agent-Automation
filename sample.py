@@ -112,6 +112,44 @@ def find_vscode_executable():
     return None
 
 
+def take_screenshot_and_convert_to_base64(screenshot_counter):
+    """
+    Take a screenshot, convert it to base64, and return the base64 string.
+
+    Args:
+        screenshot_counter (int): The counter for the screenshot for logging purposes
+
+    Returns:
+        str: Base64 encoded screenshot as a string, or None if there was an error
+    """
+    try:
+        # Take screenshot directly in memory
+        screenshot = pyautogui.screenshot()
+
+        # Convert screenshot to base64 directly in memory (no file I/O)
+        img_buffer = BytesIO()
+        screenshot.save(img_buffer, format="PNG")
+        img_buffer.seek(0)
+        base64_image = base64.b64encode(img_buffer.getvalue()).decode()
+
+        print(f"Screenshot {screenshot_counter} captured in memory and converted to base64")
+
+        # Optional: Save screenshot to disk for debugging (commented out by default)
+        # images_folder = "images"
+        # screenshot_filename = f"progress_{screenshot_counter:03d}.png"
+        # screenshot_path = os.path.join(images_folder, screenshot_filename)
+        # if not os.path.exists(images_folder):
+        #     os.makedirs(images_folder)
+        # screenshot.save(screenshot_path)
+        # print(f"Screenshot {screenshot_counter} also saved to disk: {screenshot_filename}")
+
+        return base64_image
+
+    except Exception as e:
+        print(f"Error taking screenshot: {e}")
+        return None
+
+
 # Step 1: Launch VS Code with specific folder
 # Construct the full path from home directory
 home_directory = os.path.expanduser("~")
@@ -344,12 +382,6 @@ print("Prompt sent to Copilot")
 # Step 5: Take screenshots and monitor for completion
 print("Starting screenshot capture and monitoring for code generation completion...")
 
-# Create images folder if it doesn't exist (optional, for debugging)
-images_folder = "images"
-# Uncomment the following lines if you want to save screenshots to disk for debugging
-# if not os.path.exists(images_folder):
-#     os.makedirs(images_folder)
-#     print(f"Created {images_folder} folder")
 
 max_wait_time = 120  # Maximum 2 minutes wait for code generation
 screenshot_interval = 3  # Take screenshot every 3 seconds
@@ -363,50 +395,42 @@ while elapsed_time < max_wait_time and not keep_button_found:
 
     # Take screenshot directly in memory and convert to base64
     try:
-        screenshot = pyautogui.screenshot()
-        
-        # Convert screenshot to base64 directly in memory (no file I/O)
-        img_buffer = BytesIO()
-        screenshot.save(img_buffer, format='PNG')
-        img_buffer.seek(0)
-        base64_image = base64.b64encode(img_buffer.getvalue()).decode()
-        
-        print(f"Screenshot {screenshot_counter} captured in memory and converted to base64")
-        
-       
-        # Use Azure OpenAI Computer Use Agent to check if Keep button is enabled
-        try:
-            # Debug: Print what we're sending to the model
-            print(f"🔍 Debug - Sending screenshot to Computer Use Agent model...")
+        # Modular function to take screenshot and convert to base64
+        base64_image = take_screenshot_and_convert_to_base64(screenshot_counter)
 
-            # Create initial request to Computer Use Agent model
-            response = client.responses.create(
-                model="computer-use-preview",
-                tools=[
-                    {
-                        "type": "computer_use_preview",
-                        "display_width": 1920,  # Adjust based on your screen resolution
-                        "display_height": 1080,
-                        "environment": "windows",
-                    }
-                ],
-                input=[
-                    {
-                        "type": "message",
-                        "role": "user",
-                        "content": [
-                            {"type": "input_text", "text": user_prompt},
-                            {
-                                "type": "input_image",
-                                "image_url": f"data:image/png;base64,{base64_image}",
-                            },
-                        ],
-                    }                ],
-                truncation="auto",
-            )
-            print(f"🔍 Debug - Model response received {response.output}")
-              # Parse the JSON response from the model
+        if base64_image is not None:
+            # Use Azure OpenAI Computer Use Agent to check if Keep button is enabled
             try:
+                # Debug: Print what we're sending to the model
+                print(f"🔍 Debug - Sending screenshot to Computer Use Agent model...")
+
+                # Create initial request to Computer Use Agent model
+                response = client.responses.create(
+                    model="computer-use-preview",
+                    tools=[
+                        {
+                            "type": "computer_use_preview",
+                            "display_width": 1920,  # Adjust based on your screen resolution
+                            "display_height": 1080,
+                            "environment": "windows",
+                        }
+                    ],
+                    input=[
+                        {
+                            "type": "message",
+                            "role": "user",
+                            "content": [
+                                {"type": "input_text", "text": user_prompt},                                {
+                                    "type": "input_image",
+                                    "image_url": f"data:image/png;base64,{base64_image}",
+                                },
+                            ],
+                        }
+                    ],
+                    truncation="auto",
+                )
+                print(f"🔍 Debug - Model response received {response.output}")
+                
                 # Extract the actual text content from the response object
                 response_text = None
                 
@@ -420,7 +444,8 @@ while elapsed_time < max_wait_time and not keep_button_found:
                         first_content = first_message.content[0]
                         if hasattr(first_content, 'text'):
                             response_text = first_content.text
-                  # Fallback to string conversion if above doesn't work
+                
+                # Fallback to string conversion if above doesn't work
                 if response_text is None:
                     response_text = str(response.output)
                     # Try to find JSON content in the response
@@ -453,9 +478,9 @@ while elapsed_time < max_wait_time and not keep_button_found:
                     elif button_status == "disabled":
                         print("⏳ Keep button is still disabled, continuing to monitor...")
                         
-                    else:                        print(f"⚠️ Unexpected button status: {button_status}")
-                else:
-                    print("⚠️ Response missing expected 'button' field")
+                    else:
+                        print(f"⚠️ Unexpected button status: {button_status}")
+                else:                    print("⚠️ Response missing expected 'button' field")
                     
             except json.JSONDecodeError as e:
                 print(f"⚠️ Error parsing JSON response: {e}")
@@ -463,9 +488,11 @@ while elapsed_time < max_wait_time and not keep_button_found:
             except Exception as e:
                 print(f"⚠️ Error processing model response: {e}")
                 
-        except Exception as e:
-            print(f"Error calling Computer Use Agent model: {e}")
-            print("Continuing with screenshot monitoring...")
+            except Exception as e:
+                print(f"Error calling Computer Use Agent model: {e}")
+                print("Continuing with screenshot monitoring...")
+        else:
+            print("⚠️ Failed to capture screenshot, skipping this iteration...")
 
         # If keep button still not found, pause for 5 seconds before next iteration
         if not keep_button_found:
