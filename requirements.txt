@@ -1,0 +1,10 @@
+pyautogui
+pygetwindow
+pyscreeze
+pillow
+opencv-python
+openai
+azure-identity
+azure-core
+python-dotenv
+requests
