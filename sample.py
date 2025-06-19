@@ -288,12 +288,10 @@ try:
             pip_command = f"pip install -r requirements.txt"
             pyautogui.typewrite(pip_command, interval=0.05)
             pyautogui.press("enter")
-            print(f"Executed: {pip_command}")
+            print(f"Executed: {pip_command}")            # Use CUA model to intelligently detect installation completion
+            print("Monitoring package installation using CUA model...")
 
-            # Simple fixed wait time approach (more reliable)
-            print("Waiting for package installation to complete...")
-
-            # Count the number of packages to estimate time needed
+            # Count the number of packages for reference
             package_count = len(
                 [
                     line
@@ -301,22 +299,143 @@ try:
                     if line.strip() and not line.strip().startswith("#")
                 ]
             )
+            print(f"Installing {package_count} packages...")
 
-            # Base time: 10 seconds + 5 seconds per package
-            estimated_time = 10 + (package_count * 5)
-            print(
-                f"Estimated installation time: {estimated_time} seconds for {package_count} packages"
-            )
+            # Define prompt for CUA model to detect installation completion
+            installation_prompt = """
+The image provided is a screenshot of a PowerShell/Command Prompt terminal window where pip install is running.
+I need to determine if the package installation has completed or is still in progress.
 
-            # Wait with progress updates
-            for i in range(estimated_time):
-                if i % 5 == 0:  # Update every 5 seconds
-                    print(f"Installation in progress... ({i}/{estimated_time}s)")
-                time.sleep(1)
+When installation is complete, the terminal will show an empty prompt (like "PS C:\path>" or "C:\path>") waiting for the next command.
+When installation is in progress, you'll see output like:
+- "Collecting package_name..."
+- "Downloading..."
+- "Installing collected packages..."
+- "Successfully installed..."
+- Progress bars or percentage indicators
 
-            print("Package installation should be complete")
+In your response, please provide the following JSON format:
+{
+    "installation_status": "complete" or "in_progress"
+}
+
+Return "complete" when you see an empty command prompt ready for input.
+Return "in_progress" when you see any installation activity or output.
+"""
+
+            installation_complete = False
+            screenshot_counter = 1
+            max_wait_time = 300  # Maximum 5 minutes timeout
+            start_time = time.time()
+
+            # Initial wait to let installation start
+            print("Waiting 5 seconds for installation to begin...")
+            time.sleep(5)
+
+            while not installation_complete and (time.time() - start_time) < max_wait_time:
+                print(f"📸 Taking screenshot {screenshot_counter} to check installation status...")
+                
+                # Take screenshot and convert to base64
+                base64_image = take_screenshot_and_convert_to_base64(screenshot_counter)
+                
+                if base64_image is not None:
+                    try:
+                        print(f"🔍 Analyzing screenshot with CUA model...")
+
+                        # Create request to Computer Use Agent model
+                        response = client.responses.create(
+                            model="computer-use-preview",
+                            tools=[
+                                {
+                                    "type": "computer_use_preview",
+                                    "display_width": 1920,  # Adjust based on your screen resolution
+                                    "display_height": 1080,
+                                    "environment": "windows",
+                                }
+                            ],
+                            input=[
+                                {
+                                    "type": "message",
+                                    "role": "user",
+                                    "content": [
+                                        {"type": "input_text", "text": installation_prompt},
+                                        {
+                                            "type": "input_image",
+                                            "image_url": f"data:image/png;base64,{base64_image}",
+                                        },
+                                    ],
+                                }
+                            ],
+                            truncation="auto",
+                        )
+                        
+                        # Extract the actual text content from the response object
+                        response_text = None
+                        
+                        # Check if response.output is a list of ResponseOutputMessage objects
+                        if hasattr(response.output, '__iter__') and len(response.output) > 0:
+                            # Get the first message in the output
+                            first_message = response.output[0]
+                            
+                            # Extract text content from the message
+                            if hasattr(first_message, 'content') and len(first_message.content) > 0:
+                                first_content = first_message.content[0]
+                                if hasattr(first_content, 'text'):
+                                    response_text = first_content.text
+                        
+                        # Fallback to string conversion if above doesn't work
+                        if response_text is None:
+                            response_text = str(response.output)
+                            # Try to find JSON content in the response
+                            start_idx = response_text.find('{')
+                            end_idx = response_text.rfind('}') + 1
+                            
+                            if start_idx != -1 and end_idx > start_idx:
+                                response_text = response_text[start_idx:end_idx]
+                        
+                        print(f"🔍 CUA response: {response_text}")
+                        
+                        # Parse the JSON content
+                        response_data = json.loads(response_text)
+                        
+                        # Check installation status
+                        if 'installation_status' in response_data:
+                            status = response_data['installation_status']
+                            
+                            if status == "complete":
+                                print("✅ Package installation detected as COMPLETE!")
+                                installation_complete = True
+                                break
+                            elif status == "in_progress":
+                                print("⏳ Installation still in progress, continuing to monitor...")
+                            else:
+                                print(f"⚠️ Unexpected status: {status}")
+                        else:
+                            print("⚠️ Response missing expected 'installation_status' field")
+                            
+                    except json.JSONDecodeError as e:
+                        print(f"⚠️ Error parsing JSON response: {e}")
+                        print(f"Raw response: {response.output}")
+                    except Exception as e:
+                        print(f"⚠️ Error calling CUA model: {e}")
+                        print("Continuing with monitoring...")
+                else:
+                    print("⚠️ Failed to capture screenshot, skipping this iteration...")
+
+                # If installation not complete, wait before next check
+                if not installation_complete:
+                    print("⏸️ Waiting 10 seconds before next check...")
+                    time.sleep(10)
+                    screenshot_counter += 1
+
+            if installation_complete:
+                print("🎉 Package installation completed successfully!")
+            else:
+                print("⏰ Installation monitoring timed out - assuming installation is complete")
+                print(f"Waited for {max_wait_time} seconds")
 
             # Brief additional wait to ensure terminal is ready
+            print("Waiting 3 seconds for terminal to be ready...")
             time.sleep(3)
 
         else:
