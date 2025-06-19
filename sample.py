@@ -318,10 +318,9 @@ When installation is in progress, you'll see output like:
 - "Successfully installed..."
 - Progress bars or percentage indicators
 
-In your response, please provide the following JSON format:
-{
-    "installation_status": "complete" or "in_progress"
-}
+In your response, simply return one of these two words:
+    "complete" - when you see an empty command prompt ready for input
+    "in_progress" - when you see any installation activity or output
 
 Return "complete" when you see an empty command prompt ready for input.
 Return "in_progress" when you see any installation activity or output.
@@ -333,8 +332,8 @@ Return "in_progress" when you see any installation activity or output.
             start_time = time.time()
 
             # Initial wait to let installation start
-            print("Waiting 5 seconds for installation to begin...")
-            time.sleep(5)
+            print("Waiting 1 seconds for installation to begin...")
+            time.sleep(1)
 
             while (
                 not installation_complete and (time.time() - start_time) < max_wait_time
@@ -398,45 +397,42 @@ Return "in_progress" when you see any installation activity or output.
                             ):
                                 first_content = first_message.content[0]
                                 if hasattr(first_content, "text"):
-                                    response_text = first_content.text
-
-                        # Fallback to string conversion if above doesn't work
+                                    response_text = first_content.text                        
+                                    # Fallback to string conversion if above doesn't work
                         if response_text is None:
                             response_text = str(response.output)
                             # Try to find JSON content in the response
                             start_idx = response_text.find("{")
                             end_idx = response_text.rfind("}") + 1
-
+                            
                             if start_idx != -1 and end_idx > start_idx:
                                 response_text = response_text[start_idx:end_idx]
 
-                        print(f"🔍 CUA response: {response_text}")
+                        print(f"🔍 CUA response - pip installation of packages is: {response_text}")
 
-                        # Parse the JSON content
-                        response_data = json.loads(response_text)
-
-                        # Check installation status
-                        if "installation_status" in response_data:
-                            status = response_data["installation_status"]
-
-                            if status == "complete":
-                                print("✅ Package installation detected as COMPLETE!")
-                                installation_complete = True
-                                break
-                            elif status == "in_progress":
-                                print(
-                                    "⏳ Installation still in progress, continuing to monitor..."
-                                )
+                        # Try to parse as JSON first (for backward compatibility)
+                        try:
+                            response_data = json.loads(response_text)
+                            if "installation_status" in response_data:
+                                status = response_data["installation_status"]
                             else:
-                                print(f"⚠️ Unexpected status: {status}")
-                        else:
-                            print(
-                                "⚠️ Response missing expected 'installation_status' field"
-                            )
+                                # If JSON doesn't have expected field, treat as string response
+                                status = response_text.strip().lower()
+                        except json.JSONDecodeError:
+                            # If not valid JSON, treat as plain text response
+                            status = response_text.strip().lower()
 
-                    except json.JSONDecodeError as e:
-                        print(f"⚠️ Error parsing JSON response: {e}")
-                        print(f"Raw response: {response.output}")
+                        # Check installation status (normalize to lowercase for comparison)
+                        if status == "complete":
+                            print("✅ Package installation detected as COMPLETE!")
+                            installation_complete = True
+                            break
+                        elif status == "in_progress":
+                            print("⏳ Installation still in progress, continuing to monitor...")
+                        else:
+                            print(f"⚠️ Unexpected status: {status}")
+                            print("Expected 'complete' or 'in_progress'")
+
                     except Exception as e:
                         print(f"⚠️ Error calling CUA model: {e}")
                         print("Continuing with monitoring...")
@@ -472,48 +468,15 @@ except Exception as e:
     print(f"Error reading requirements.txt: {e}")
 
 # Step 3: Open GitHub Copilot panel in Agent mode (Ctrl+Shift+I)
-print("Clicking on Copilot chat panel input area...")
+print("Using CUA model to locate GitHub Copilot chat input area...")
+pyautogui.hotkey("ctrl", "alt", "i")
+time.sleep(3)  # Wait for panel to open
 
-# First, click on the approximate location where the Copilot chat input area should be
-# This is typically on the right side of the VS Code window
-try:
-    screen_width, screen_height = pyautogui.size()
-
-    # Calculate approximate position for Copilot chat input area
-    # Typically it's on the right side of VS Code, towards the bottom of the panel
-    chat_input_x = int(screen_width * 0.85)  # 85% across the screen (right side)
-    chat_input_y = int(
-        screen_height * 0.7
-    )  # 70% down the screen (lower area of chat panel)
-
-    print(
-        f"Clicking at approximate chat input location: ({chat_input_x}, {chat_input_y})"
-    )
-    pyautogui.click(chat_input_x, chat_input_y)
-    time.sleep(1)  # Wait for click to register
-
-except Exception as e:
-    print(f"Error clicking chat input area: {e}")
-    print("Proceeding with opening Copilot panel...")
-
-# Now open the Copilot panel
+# First, open the Copilot panel to ensure it's visible
+print("opening the Agent mode in the Copilot chat panel with Ctrl+Shift+I")
 pyautogui.hotkey("ctrl", "shift", "i")
-print("Opened Copilot Chat Panel in Agent mode")
-time.sleep(2)
 
-# Additional click to ensure focus is in the input area after panel opens
-try:
-    # Click again in the chat input area to ensure cursor is positioned correctly
-    screen_width, screen_height = pyautogui.size()
-    input_area_x = int(screen_width * 0.85)
-    input_area_y = int(screen_height * 0.75)  # Slightly lower after panel is open
-
-    print(f"Ensuring cursor focus in chat input area: ({input_area_x}, {input_area_y})")
-    pyautogui.click(input_area_x, input_area_y)
-    time.sleep(1)
-
-except Exception as e:
-    print(f"Error focusing chat input area: {e}")
+time.sleep(3)  # Wait for panel to open
 
 # Step 4: Pass developer prompt
 developer_prompt = "Write a Python function to calculate factorial using recursion."
@@ -601,7 +564,7 @@ while elapsed_time < max_wait_time and not keep_button_found:
                     if start_idx != -1 and end_idx > start_idx:
                         response_text = response_text[start_idx:end_idx]
 
-                print(f"🔍 Extracted text: {response_text}")
+                # print(f"🔍 Extracted text: {response_text}")
 
                 # Parse the JSON content
                 response_data = json.loads(response_text)
@@ -611,7 +574,7 @@ while elapsed_time < max_wait_time and not keep_button_found:
                     button_status = response_data["button"]
 
                     if button_status == "enabled":
-                        print("✅ Keep button is ENABLED!")
+                        print("✅ \'Keep\' button is ENABLED!")
 
                         # Press Ctrl+Enter to accept the code (cursor is already in chat input area)
                         print("⌨️ Pressing Ctrl+Enter to accept the generated code...")
@@ -632,7 +595,7 @@ while elapsed_time < max_wait_time and not keep_button_found:
                     print("⚠️ Response missing expected 'button' field")
 
             except json.JSONDecodeError as e:
-                print(f"⚠️ Error parsing JSON response: {e}")
+                print(f"⚠️ Error parsing JSON response: {e}, continuing to loop through and wait for the \'Keep\' button...")
                 print(f"Raw response: {response.output}")
             except Exception as e:
                 print(f"⚠️ Error processing model response: {e}")
