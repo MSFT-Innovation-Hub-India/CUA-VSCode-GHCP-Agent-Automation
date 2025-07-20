@@ -20,14 +20,10 @@ pyautogui.FAILSAFE = False
 load_dotenv()
 
 # Get configuration from environment variables
-azure_endpoint = os.getenv(
-    "AZURE_OPENAI_ENDPOINT", "https://aoai-gpt4-001.openai.azure.com/"
-)
-api_version = os.getenv("AZURE_API_VERSION", "2025-03-01-preview")
-cognitive_services_scope = os.getenv(
-    "COGNITIVE_SERVICES_SCOPE", "https://cognitiveservices.azure.com/.default"
-)
-cua_model_name = os.getenv("CUA_MODEL_NAME", "computer-use-preview")
+azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+api_version = os.getenv("AZURE_API_VERSION")
+cognitive_services_scope = os.getenv("COGNITIVE_SERVICES_SCOPE")
+cua_model_name = os.getenv("CUA_MODEL_NAME")
 
 token_provider = get_bearer_token_provider(
     DefaultAzureCredential(), cognitive_services_scope
@@ -397,18 +393,20 @@ Return "in_progress" when you see any installation activity or output.
                             ):
                                 first_content = first_message.content[0]
                                 if hasattr(first_content, "text"):
-                                    response_text = first_content.text                        
+                                    response_text = first_content.text
                                     # Fallback to string conversion if above doesn't work
                         if response_text is None:
                             response_text = str(response.output)
                             # Try to find JSON content in the response
                             start_idx = response_text.find("{")
                             end_idx = response_text.rfind("}") + 1
-                            
+
                             if start_idx != -1 and end_idx > start_idx:
                                 response_text = response_text[start_idx:end_idx]
 
-                        print(f"🔍 CUA response - pip installation of packages is: {response_text}")
+                        print(
+                            f"🔍 CUA response - pip installation of packages is: {response_text}"
+                        )
 
                         # Try to parse as JSON first (for backward compatibility)
                         try:
@@ -428,7 +426,9 @@ Return "in_progress" when you see any installation activity or output.
                             installation_complete = True
                             break
                         elif status == "in_progress":
-                            print("⏳ Installation still in progress, continuing to monitor...")
+                            print(
+                                "⏳ Installation still in progress, continuing to monitor..."
+                            )
                         else:
                             print(f"⚠️ Unexpected status: {status}")
                             print("Expected 'complete' or 'in_progress'")
@@ -479,7 +479,8 @@ pyautogui.hotkey("ctrl", "shift", "i")
 time.sleep(3)  # Wait for panel to open
 
 # Step 4: Pass developer prompt
-developer_prompt = "Write a Python function to calculate factorial using recursion."
+developer_prompt = """add a python script that calculates the factorial of the first n natural numbers. There is no need to create a python virtual environment. Add the code directly to the project. There is no need to write any test cases for this script. Just write the code that calculates the factorial of the first n natural numbers."""
+
 pyautogui.typewrite(developer_prompt, interval=0.05)
 pyautogui.press("enter")
 print("Prompt sent to Copilot")
@@ -574,7 +575,7 @@ while elapsed_time < max_wait_time and not keep_button_found:
                     button_status = response_data["button"]
 
                     if button_status == "enabled":
-                        print("✅ \'Keep\' button is ENABLED!")
+                        print("✅ 'Keep' button is ENABLED!")
 
                         # Press Ctrl+Enter to accept the code (cursor is already in chat input area)
                         print("⌨️ Pressing Ctrl+Enter to accept the generated code...")
@@ -595,7 +596,9 @@ while elapsed_time < max_wait_time and not keep_button_found:
                     print("⚠️ Response missing expected 'button' field")
 
             except json.JSONDecodeError as e:
-                print(f"⚠️ Error parsing JSON response: {e}, continuing to loop through and wait for the \'Keep\' button...")
+                print(
+                    f"⚠️ Error parsing JSON response: {e}, continuing to loop through and wait for the 'Keep' button..."
+                )
                 print(f"Raw response: {response.output}")
             except Exception as e:
                 print(f"⚠️ Error processing model response: {e}")
