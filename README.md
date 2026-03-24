@@ -99,6 +99,8 @@ This approach is invaluable for scenarios requiring:
 
 ## 🔧 Technical Architecture
 
+![Architecture Diagram](images/architecture.png)
+
 ### Core Components
 
 1. **PyAutoGUI Engine**
